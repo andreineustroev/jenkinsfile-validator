@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+
+import urllib.request
+import json
+import sys
+import os
+
+from urllib.parse import urljoin
+from subprocess import Popen, PIPE
+
+try:
+    open(os.environ['HOME'] + '/.jflint', 'r')
+except FileNotFoundError:
+    print('You must create ${HOME}/.jflint config file')
+    print('''Example: \n
+{
+    "jenkins_host": "https://jenkins.example.org"
+}''')
+    sys.exit(1)
+
+with open(os.environ['HOME'] + '/.jflint', 'r') as config:
+    cfg = json.load(config)
+
+if len(sys.argv) == 1:
+    print('Usage: jflint <Jenkinsfile>')
+    sys.exit(0)
+
+jenkinsfile = sys.argv[1]
+
+req = urllib.request.urlopen(urljoin(cfg.get('jenkins_host'), 'login'))
+ssh_endpoint = req.headers.get('X-SSH-Endpoint')
+ssh_jenkins_host = ssh_endpoint.split(':')[0]
+ssh_jenkins_port = ssh_endpoint.split(':')[1]
+
+command = 'ssh -p {port} {host} declarative-linter < {jenkinsfile}'.format(
+    port=ssh_jenkins_port,
+    host=ssh_jenkins_host,
+    jenkinsfile=jenkinsfile
+    )
+
+ssh = Popen(command, stdout=PIPE, stderr=PIPE, shell=True)
+ssh.wait()
+ret = ssh.communicate()
+if ssh.returncode != 0:
+    print('Action failed, return code: {code}, stderr: {stderr}'.format(
+        code=ssh.returncode,
+        stderr=ret[1].decode('utf-8')
+    ))
+
+print(ret[0].decode('utf-8'))
